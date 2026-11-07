@@ -1,0 +1,48 @@
+name: Delete selected files
+
+on:
+  workflow_dispatch:
+    inputs:
+      paths:
+        description: 'Files/folders to delete, separated by spaces or new lines (example: src docs README.md *.log)'
+        required: true
+        type: string
+      confirm:
+        description: 'Type DELETE to confirm'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  delete:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.confirm == 'DELETE' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Delete the listed paths
+        env:
+          PATHS: ${{ github.event.inputs.paths }}
+        run: |
+          set -f                      # do not expand globs in the shell; git handles them
+          for p in $PATHS; do
+            case "$p" in
+              /*|*..*|.git|.git/*|.github|.github/*)
+                echo "Skipping unsafe or protected path: $p"; continue ;;
+            esac
+            git rm -r -q --ignore-unmatch -- "$p"
+          done
+          git status --short | head -50
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --cached --quiet; then
+            echo "Nothing matched, nothing deleted."
+          else
+            git commit -m "chore: delete selected files"
+            git push
+          fi
