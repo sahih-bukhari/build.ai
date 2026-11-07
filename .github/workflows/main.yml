@@ -1,66 +1,39 @@
-name: Unzip project
+
+name: Replace Old Files
 
 on:
   workflow_dispatch:
-    inputs:
-      zip_path:
-        description: 'Path of the zip file inside the repo'
-        required: true
-        default: 'persian-ai-builder-v5-credits.zip'
-        type: string
-      delete_zip:
-        description: 'Delete the zip file after extracting'
-        required: true
-        default: true
-        type: boolean
 
 permissions:
   contents: write
 
 jobs:
-  unzip:
+  replace-files:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Extract the zip into the repository root
-        env:
-          ZIP: ${{ github.event.inputs.zip_path }}
-          DELETE_ZIP: ${{ github.event.inputs.delete_zip }}
+      - name: Replace old files
         run: |
-          set -e
-          case "$ZIP" in /*|*..*) echo "Invalid zip path"; exit 1 ;; esac
-          if [ ! -f "$ZIP" ]; then
-            echo "Zip not found: $ZIP"
-            echo "Files in the repo root:"; ls -A
-            exit 1
-          fi
+          # Delete old repository files, preserving GitHub workflow files
+          find . -mindepth 1 -maxdepth 1 \
+            ! -name '.git' \
+            ! -name '.github' \
+            -exec rm -rf {} +
 
-          rm -rf /tmp/extract && mkdir /tmp/extract
-          unzip -q "$ZIP" -d /tmp/extract -x '__MACOSX/*'
+          # Copy new files from the upload folder
+          cp -a new-files/. .
 
-          # If the zip contains one single top-level folder, use its content instead.
-          shopt -s dotglob nullglob
-          entries=(/tmp/extract/*)
-          src=/tmp/extract
-          if [ ${#entries[@]} -eq 1 ] && [ -d "${entries[0]}" ]; then src="${entries[0]}"; fi
-
-          # Never overwrite git data or workflow files (the token cannot push workflow changes).
-          rm -rf "$src/.git" "$src/.github"
-
-          cp -a "$src"/. .
-          if [ "$DELETE_ZIP" = "true" ]; then rm -f -- "$ZIP"; fi
-          echo "Extracted. Top-level entries:"; ls -A
+          # Remove temporary folder
+          rm -rf new-files
 
       - name: Commit and push
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
           git add -A
-          if git diff --cached --quiet; then
-            echo "No changes to commit."
-          else
-            git commit -m "chore: extract project from zip"
-            git pull --rebase origin "${GITHUB_REF_NAME}"
-            git push origin "HEAD:${GITHUB_REF_NAME}"
-          fi
+          git commit -m "Replace old files with new version" || echo "No changes"
+          git push
