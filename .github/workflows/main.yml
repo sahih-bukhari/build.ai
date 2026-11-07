@@ -1,18 +1,41 @@
-name: Unzip project
-on: workflow_dispatch
+name: Clean repository (delete all project files)
+
+# Manual only: Actions tab -> "Clean repository" -> Run workflow -> type DELETE.
+# It removes every file in the branch you run it on, except .git and .github (this workflow itself),
+# and commits the result. Git history is kept, so the old project stays recoverable from earlier commits.
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type DELETE to confirm removing ALL project files from this branch'
+        required: true
+        type: string
+
 permissions:
   contents: write
+
 jobs:
-  unzip:
+  clean:
     runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.confirm == 'DELETE' }}
     steps:
-      - uses: actions/checkout@v4
-      - run: |
-          unzip -oq ./*.zip
-          rm -f ./*.zip
-      - run: |
-          git config user.name "github-actions"
-          git config user.email "actions@github.com"
+      - name: Check out the branch
+        uses: actions/checkout@v4
+
+      - name: Delete everything except .git and .github
+        run: |
+          find . -mindepth 1 -maxdepth 1 ! -name '.git' ! -name '.github' -exec rm -rf {} +
+          echo "Remaining entries:"
+          ls -A
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -m "Extract project"
-          git push
+          if git diff --cached --quiet; then
+            echo "Nothing to delete."
+          else
+            git commit -m "chore: remove all project files (clean slate)"
+            git push
+          fi
