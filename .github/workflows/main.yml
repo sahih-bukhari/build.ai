@@ -1,56 +1,34 @@
-name: Unzip project
+
+name: Replace GitHub Files
 
 on:
   workflow_dispatch:
-    inputs:
-      zip_name:
-        description: 'Zip file name in repo root'
-        required: true
-        default: 'persian-ai-builder-v5-fixed-history-projects.zip'
-        type: string
 
 permissions:
   contents: write
 
 jobs:
-  unzip:
+  replace-files:
     runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
 
-      - name: Extract zip into repo root
-        env:
-          ZIP_NAME: ${{ inputs.zip_name }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Replace old files
         run: |
-          set -euo pipefail
-          if [ ! -f "$ZIP_NAME" ]; then
-            echo "ERROR: zip not found: $ZIP_NAME"
-            ls -la
-            exit 1
-          fi
-          rm -rf /tmp/extract && mkdir /tmp/extract
-          unzip -q "$ZIP_NAME" -d /tmp/extract
-          rm -rf /tmp/extract/__MACOSX
-          SRC=/tmp/extract
-          count=$(find /tmp/extract -mindepth 1 -maxdepth 1 | wc -l)
-          if [ "$count" -eq 1 ] && [ -d "$(find /tmp/extract -mindepth 1 -maxdepth 1)" ]; then
-            SRC="$(find /tmp/extract -mindepth 1 -maxdepth 1)"
-          fi
-          rm -rf "$SRC/.github" "$SRC/.git"
-          test -f "$SRC/package.json" || { echo "ERROR: package.json not found in zip"; exit 1; }
-          cp -a "$SRC"/. .
-          rm -f "$ZIP_NAME"
-          ls -A
+          mkdir -p /tmp/new-files
+          cp -a upload/. /tmp/new-files/
+          git rm -r --ignore-unmatch .
+          cp -a /tmp/new-files/. .
+          rm -rf upload
+          git add -A
 
       - name: Commit and push
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          if git diff --cached --quiet; then
-            echo "Nothing changed."
-          else
-            git commit -m "chore: add project from zip"
-            git push
-          fi
+          git commit -m "Replace old project files" || exit 0
+          git push
