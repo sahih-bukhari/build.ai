@@ -1,5 +1,5 @@
 
-name: Replace GitHub Files
+name: Clear Old GitHub Files
 
 on:
   workflow_dispatch:
@@ -14,21 +14,16 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Replace old files
+      - name: Delete old files
         run: |
-          mkdir -p /tmp/new-files
-          cp -a upload/. /tmp/new-files/
           git rm -r --ignore-unmatch .
-          cp -a /tmp/new-files/. .
-          rm -rf upload
           git add -A
 
       - name: Commit and push
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "Replace old project files" || exit 0
+          git commit -m "Delete old project files" || exit 0
           git push
+
