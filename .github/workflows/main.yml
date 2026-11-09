@@ -1,17 +1,15 @@
-name: Extract ZIP Files
+
+name: Extract ZIP to Root
 
 on:
   workflow_dispatch:
-
-permissions:
-  contents: write
 
 jobs:
   extract:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Extract ZIP
@@ -19,20 +17,8 @@ jobs:
           ZIP_FILE=$(find . -maxdepth 1 -type f -iname "*.zip" | head -n 1)
 
           if [ -z "$ZIP_FILE" ]; then
-            echo "No ZIP file found!"
+            echo "ZIP not found!"
             exit 1
           fi
 
-          unzip -o "$ZIP_FILE" -d extracted
-
-          cp -a extracted/. .
-          rm -rf extracted
-          rm -f "$ZIP_FILE"
-
-      - name: Commit Changes
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "Extract ZIP and replace project files" || echo "No changes"
-          git push origin main
+          unzip -o "$ZIP_FILE" -d .
