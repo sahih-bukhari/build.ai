@@ -1,95 +1,31 @@
-
-name: Extract ZIP to Repository
+name: Replace Project Files
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
 
 permissions:
   contents: write
 
 jobs:
-  extract-zip:
+  update:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Extract ZIP files
-        run: |
-          python - <<'PY'
-          import zipfile
-          from pathlib import Path, PurePosixPath
-          import shutil
-
-          root = Path.cwd()
-          archives = list(root.glob("*.zip"))
-
-          if len(archives) != 1:
-              raise SystemExit(
-                  f"Expected exactly one ZIP file in repository root, found {len(archives)}"
-              )
-
-          archive = archives[0]
-          print(f"Extracting: {archive.name}")
-
-          with zipfile.ZipFile(archive, "r") as z:
-              files = []
-
-              for info in z.infolist():
-                  if info.is_dir():
-                      continue
-
-                  path = PurePosixPath(info.filename)
-
-                  if path.is_absolute() or ".." in path.parts:
-                      raise ValueError(f"Unsafe ZIP path: {info.filename}")
-
-                  if "__MACOSX" in path.parts or path.name == ".DS_Store":
-                      continue
-
-                  files.append((info, path))
-
-              top_levels = {path.parts[0] for _, path in files}
-              has_root_files = any(len(path.parts) == 1 for _, path in files)
-
-              strip_folder = (
-                  len(top_levels) == 1
-                  and not has_root_files
-              )
-
-              for info, path in files:
-                  if strip_folder:
-                      path = path.relative_to(next(iter(top_levels)))
-
-                  if not path.parts:
-                      continue
-
-                  if path.as_posix() == ".github/workflows/main.yml":
-                      print("Preserving main.yml")
-                      continue
-
-                  if ".git" in path.parts:
-                      continue
-
-                  destination = root.joinpath(*path.parts)
-
-                  if not destination.resolve().is_relative_to(root.resolve()):
-                      raise ValueError(f"Unsafe destination: {destination}")
-
-                  destination.parent.mkdir(parents=True, exist_ok=True)
-
-                  with z.open(info) as source, open(destination, "wb") as target:
-                      shutil.copyfileobj(source, target)
-
-          archive.unlink()
-          print("ZIP extracted successfully!")
-          PY
-
-      - name: Commit and push
+      - name: Configure Git
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Update Repository
+        run: |
           git add -A
-          git commit -m "Extract project ZIP files" || exit 0
-          git push
+          git commit -m "Update project files" || echo "No changes"
+          git push origin HEAD:main
