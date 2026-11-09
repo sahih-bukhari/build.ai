@@ -1,31 +1,27 @@
-name: Replace Project Files
+name: Delete All Repository Files
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
 
 permissions:
   contents: write
 
 jobs:
-  update:
+  delete:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Configure Git
+      - name: Delete All Files
+        run: |
+          find . -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
+
+      - name: Commit Deletion
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-      - name: Update Repository
-        run: |
           git add -A
-          git commit -m "Update project files" || echo "No changes"
-          git push origin HEAD:main
+          git commit -m "Delete all repository files"
+          git push origin main
