@@ -1,8 +1,11 @@
 
-name: Extract ZIP to Root
+name: Extract ZIP to Repository Root
 
 on:
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   extract:
@@ -14,11 +17,45 @@ jobs:
 
       - name: Extract ZIP
         run: |
+          set -e
+
           ZIP_FILE=$(find . -maxdepth 1 -type f -iname "*.zip" | head -n 1)
 
           if [ -z "$ZIP_FILE" ]; then
-            echo "ZIP not found!"
+            echo "ZIP file not found!"
             exit 1
           fi
 
-          unzip -o "$ZIP_FILE" -d .
+          TMP_DIR=$(mktemp -d)
+
+          unzip -oq "$ZIP_FILE" -d "$TMP_DIR" \
+            -x ".github/workflows/*" \
+               "*/.github/workflows/*" \
+               ".git/*" "*/.git/*"
+
+          shopt -s dotglob nullglob
+          ITEMS=("$TMP_DIR"/*)
+          SOURCE_DIR="$TMP_DIR"
+
+          if [ "${#ITEMS[@]}" -eq 1 ] && [ -d "${ITEMS[0]}" ]; then
+            SOURCE_DIR="${ITEMS[0]}"
+          fi
+
+          cp -a "$SOURCE_DIR"/. .
+
+          rm -rf "$TMP_DIR"
+
+      - name: Commit and Push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add -A
+
+          if git diff --cached --quiet; then
+            echo "No changes found"
+            exit 0
+          fi
+
+          git commit -m "Extract ZIP into repository root"
+          git push origin HEAD:main
