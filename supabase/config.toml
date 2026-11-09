@@ -1,0 +1,8 @@
+project_id = "wsoanthjrhatxaentjgk"
+
+[functions.ai-builder]
+verify_jwt = true
+
+# Visitors of generated sites are anonymous; app-api authorises by public key, collection rules and rate limits.
+[functions.app-api]
+verify_jwt = false
