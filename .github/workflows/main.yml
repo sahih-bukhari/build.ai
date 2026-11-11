@@ -1,4 +1,5 @@
-name: Extract and Deploy ZIP
+
+name: extract
 
 on:
   workflow_dispatch:
@@ -23,33 +24,52 @@ jobs:
           import shutil
           from pathlib import Path
 
-          zips = list(Path(".").glob("*.zip"))
+          root = Path(".").resolve()
+          zips = list(root.glob("*.zip"))
 
           if not zips:
-              raise SystemExit("ERROR: No ZIP file found in repository.")
+              raise SystemExit("ERROR: ZIP file not found.")
+
+          if len(zips) > 1:
+              raise SystemExit("ERROR: More than one ZIP found. Keep only the required ZIP.")
 
           zip_file = zips[0]
-          print(f"Extracting: {zip_file}")
-
-          temp = Path("zip_temp")
+          temp = root / "_zip_extract_temp"
           temp.mkdir(exist_ok=True)
 
+          print(f"Extracting: {zip_file.name}")
+
           with zipfile.ZipFile(zip_file) as archive:
-              for item in archive.infolist():
-                  target = (temp / item.filename).resolve()
-                  if not target.is_relative_to(temp.resolve()):
+              for member in archive.infolist():
+                  path = Path(member.filename)
+
+                  if path.is_absolute() or ".." in path.parts:
                       raise SystemExit("Unsafe ZIP path detected.")
+
               archive.extractall(temp)
 
-          extracted = list(temp.iterdir())
+          items = [
+              p for p in temp.iterdir()
+              if p.name not in ("__MACOSX", ".DS_Store")
+          ]
 
-          source = extracted[0] if len(extracted) == 1 and extracted[0].is_dir() else temp
+          source = (
+              items[0]
+              if len(items) == 1 and items[0].is_dir()
+              else temp
+          )
 
-          for item in source.iterdir():
-              destination = Path(item.name)
+          for item in list(source.iterdir()):
+
+              # Preserve existing GitHub workflows
+              if item.name in (".github", ".git"):
+                  print(f"Preserving: {item.name}")
+                  continue
+
+              destination = root / item.name
 
               if destination.exists():
-                  if destination.is_dir():
+                  if destination.is_dir() and not destination.is_symlink():
                       shutil.rmtree(destination)
                   else:
                       destination.unlink()
@@ -68,5 +88,10 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           git add -A
-          git commit -m "Extract new project ZIP" || echo "No changes"
-          git push origin "HEAD:${GITHUB_REF_NAME}"
+
+          if ! git diff --cached --quiet; then
+            git commit -m "Extract and update project files"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          else
+            echo "No changes to commit."
+          fi
