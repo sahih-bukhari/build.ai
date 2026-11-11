@@ -1,5 +1,5 @@
 
-name: Extract ZIP to Repository Root
+name: Clean Old Repository Files
 
 on:
   workflow_dispatch:
@@ -8,54 +8,50 @@ permissions:
   contents: write
 
 jobs:
-  extract:
+  clean:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Extract ZIP
+      - name: Delete Old Files
         run: |
-          set -e
+          python3 - <<'PY'
+          import os
+          import shutil
+          from pathlib import Path
 
-          ZIP_FILE=$(find . -maxdepth 1 -type f -iname "*.zip" | head -n 1)
+          root = Path(".")
+          keep = {
+              ".git",
+              ".github/workflows/main.yml"
+          }
 
-          if [ -z "$ZIP_FILE" ]; then
-            echo "ZIP file not found!"
-            exit 1
-          fi
+          for item in root.iterdir():
+              if item.name in keep:
+                  continue
 
-          TMP_DIR=$(mktemp -d)
+              if item.is_dir():
+                  shutil.rmtree(item)
+              else:
+                  item.unlink()
 
-          unzip -oq "$ZIP_FILE" -d "$TMP_DIR" \
-            -x ".github/workflows/*" \
-               "*/.github/workflows/*" \
-               ".git/*" "*/.git/*"
+          print("Old repository files deleted.")
+          PY
 
-          shopt -s dotglob nullglob
-          ITEMS=("$TMP_DIR"/*)
-          SOURCE_DIR="$TMP_DIR"
-
-          if [ "${#ITEMS[@]}" -eq 1 ] && [ -d "${ITEMS[0]}" ]; then
-            SOURCE_DIR="${ITEMS[0]}"
-          fi
-
-          cp -a "$SOURCE_DIR"/. .
-
-          rm -rf "$TMP_DIR"
-
-      - name: Commit and Push
+      - name: Commit Changes
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           git add -A
 
-          if git diff --cached --quiet; then
-            echo "No changes found"
-            exit 0
+          if ! git diff --cached --quiet; then
+            git commit -m "Clean old project files"
+            git push origin HEAD
+          else
+            echo "No files to delete."
           fi
-
-          git commit -m "Extract ZIP into repository root"
-          git push origin HEAD:main
