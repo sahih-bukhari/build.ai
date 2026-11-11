@@ -1,0 +1,72 @@
+name: Extract and Deploy ZIP
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Find and Extract ZIP
+        run: |
+          python3 - <<'PY'
+          import zipfile
+          import shutil
+          from pathlib import Path
+
+          zips = list(Path(".").glob("*.zip"))
+
+          if not zips:
+              raise SystemExit("ERROR: No ZIP file found in repository.")
+
+          zip_file = zips[0]
+          print(f"Extracting: {zip_file}")
+
+          temp = Path("zip_temp")
+          temp.mkdir(exist_ok=True)
+
+          with zipfile.ZipFile(zip_file) as archive:
+              for item in archive.infolist():
+                  target = (temp / item.filename).resolve()
+                  if not target.is_relative_to(temp.resolve()):
+                      raise SystemExit("Unsafe ZIP path detected.")
+              archive.extractall(temp)
+
+          extracted = list(temp.iterdir())
+
+          source = extracted[0] if len(extracted) == 1 and extracted[0].is_dir() else temp
+
+          for item in source.iterdir():
+              destination = Path(item.name)
+
+              if destination.exists():
+                  if destination.is_dir():
+                      shutil.rmtree(destination)
+                  else:
+                      destination.unlink()
+
+              shutil.move(str(item), str(destination))
+
+          shutil.rmtree(temp)
+          zip_file.unlink()
+
+          print("ZIP extracted successfully.")
+          PY
+
+      - name: Commit and Push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add -A
+          git commit -m "Extract new project ZIP" || echo "No changes"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
