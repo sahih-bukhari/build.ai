@@ -1,17 +1,17 @@
-name: Clean repository (delete all project files)
+name: Unpack project ZIP
 
-# Manual only: Actions tab -> "Clean repository (delete all project files)" -> Run workflow -> type DELETE.
-# It deletes every file in the branch you run it on, except .git and .github (so this workflow and any other workflow stay),
-# and then COMMITS and PUSHES the deletion. Git history is kept, so the old project can always be restored from earlier commits.
+# Manual only: Actions tab -> "Unpack project ZIP" -> Run workflow.
+# Finds the ZIP file you name, extracts it into the repository root and commits the result.
+# Files that already exist are replaced by the ones inside the ZIP; nothing else is deleted.
 on:
   workflow_dispatch:
     inputs:
-      confirm:
-        description: 'Type DELETE to remove ALL project files from this branch'
+      zip_path:
+        description: 'Path of the ZIP file in the repository (example: persian-ai-builder-v13-merged.zip)'
         required: true
         type: string
-      keep:
-        description: 'Optional: extra top-level files or folders to keep, separated by spaces (example: README.md docs)'
+      target_dir:
+        description: 'Folder to extract into (leave empty for the repository root)'
         required: false
         default: ''
         type: string
@@ -20,31 +20,51 @@ permissions:
   contents: write
 
 jobs:
-  clean:
+  unzip:
     runs-on: ubuntu-latest
-    if: ${{ github.event.inputs.confirm == 'DELETE' }}
     steps:
       - name: Check out the branch
         uses: actions/checkout@v4
 
-      - name: Delete everything except .git, .github and the entries you chose to keep
+      - name: Validate and extract the ZIP
         env:
-          KEEP: ${{ github.event.inputs.keep }}
+          ZIP_PATH: ${{ github.event.inputs.zip_path }}
+          TARGET_DIR: ${{ github.event.inputs.target_dir }}
         run: |
           set -euo pipefail
-          set -f   # no wildcard expansion of the text typed in "keep"
-          args=(! -name '.git' ! -name '.github')
-          for item in $KEEP; do
-            case "$item" in
-              .|..|*/*|*'*'*|*'?'*|*'['*) echo "Skipping unsafe entry: $item" ;;
-              *) args+=(! -name "$item") ;;
-            esac
-          done
-          find . -mindepth 1 -maxdepth 1 "${args[@]}" -exec rm -rf {} +
-          echo "Entries left in the working copy:"
-          ls -A
+          set -f
 
-      - name: Commit and push the deletion
+          case "$ZIP_PATH" in
+            /*|*..*|"") echo "The ZIP path must be a relative path inside the repository." >&2; exit 1 ;;
+          esac
+          case "$ZIP_PATH" in
+            *.zip|*.ZIP) ;;
+            *) echo "The file must end with .zip" >&2; exit 1 ;;
+          esac
+          if [ ! -f "$ZIP_PATH" ]; then
+            echo "File not found in the repository: $ZIP_PATH" >&2
+            echo "Files at the root:"; ls -A
+            exit 1
+          fi
+
+          case "$TARGET_DIR" in
+            /*|*..*) echo "The target folder must be a relative path inside the repository." >&2; exit 1 ;;
+          esac
+          target="${TARGET_DIR:-.}"
+          mkdir -p "$target"
+
+          # Refuse ZIPs with absolute paths or ".." entries (zip-slip).
+          if unzip -Z1 "$ZIP_PATH" | grep -E '(^/|(^|/)\.\.(/|$))' >/dev/null; then
+            echo "The ZIP contains unsafe paths; refusing to extract." >&2
+            exit 1
+          fi
+
+          unzip -q -o "$ZIP_PATH" -d "$target"
+          echo "Extracted $(unzip -Z1 "$ZIP_PATH" | wc -l) entries into $target."
+
+      - name: Commit and push the extracted files
+        env:
+          ZIP_PATH: ${{ github.event.inputs.zip_path }}
         run: |
           set -euo pipefail
           if [ "${GITHUB_REF_TYPE}" != "branch" ]; then
@@ -55,10 +75,9 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
           if git diff --cached --quiet; then
-            echo "Nothing to delete: the branch has no project files."
+            echo "Nothing changed: the ZIP content is already in the repository."
             exit 0
           fi
-          deleted=$(git diff --cached --name-only --diff-filter=D | wc -l)
-          git commit -m "Clean repository: remove all project files"
+          git commit -m "Unpack ${ZIP_PATH}"
           git push origin "HEAD:refs/heads/${GITHUB_REF_NAME}"
-          echo "Deleted $deleted files and pushed the commit to ${GITHUB_REF_NAME}." | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "Unpacked ${ZIP_PATH} and pushed the commit to ${GITHUB_REF_NAME}." | tee -a "$GITHUB_STEP_SUMMARY"
