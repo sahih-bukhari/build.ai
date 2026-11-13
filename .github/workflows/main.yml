@@ -1,97 +1,64 @@
+name: Clean repository (delete all project files)
 
-name: extract
-
+# Manual only: Actions tab -> "Clean repository (delete all project files)" -> Run workflow -> type DELETE.
+# It deletes every file in the branch you run it on, except .git and .github (so this workflow and any other workflow stay),
+# and then COMMITS and PUSHES the deletion. Git history is kept, so the old project can always be restored from earlier commits.
 on:
   workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type DELETE to remove ALL project files from this branch'
+        required: true
+        type: string
+      keep:
+        description: 'Optional: extra top-level files or folders to keep, separated by spaces (example: README.md docs)'
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: write
 
 jobs:
-  extract:
+  clean:
     runs-on: ubuntu-latest
-
+    if: ${{ github.event.inputs.confirm == 'DELETE' }}
     steps:
-      - name: Checkout Repository
+      - name: Check out the branch
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Find and Extract ZIP
+      - name: Delete everything except .git, .github and the entries you chose to keep
+        env:
+          KEEP: ${{ github.event.inputs.keep }}
         run: |
-          python3 - <<'PY'
-          import zipfile
-          import shutil
-          from pathlib import Path
+          set -euo pipefail
+          set -f   # no wildcard expansion of the text typed in "keep"
+          args=(! -name '.git' ! -name '.github')
+          for item in $KEEP; do
+            case "$item" in
+              .|..|*/*|*'*'*|*'?'*|*'['*) echo "Skipping unsafe entry: $item" ;;
+              *) args+=(! -name "$item") ;;
+            esac
+          done
+          find . -mindepth 1 -maxdepth 1 "${args[@]}" -exec rm -rf {} +
+          echo "Entries left in the working copy:"
+          ls -A
 
-          root = Path(".").resolve()
-          zips = list(root.glob("*.zip"))
-
-          if not zips:
-              raise SystemExit("ERROR: ZIP file not found.")
-
-          if len(zips) > 1:
-              raise SystemExit("ERROR: More than one ZIP found. Keep only the required ZIP.")
-
-          zip_file = zips[0]
-          temp = root / "_zip_extract_temp"
-          temp.mkdir(exist_ok=True)
-
-          print(f"Extracting: {zip_file.name}")
-
-          with zipfile.ZipFile(zip_file) as archive:
-              for member in archive.infolist():
-                  path = Path(member.filename)
-
-                  if path.is_absolute() or ".." in path.parts:
-                      raise SystemExit("Unsafe ZIP path detected.")
-
-              archive.extractall(temp)
-
-          items = [
-              p for p in temp.iterdir()
-              if p.name not in ("__MACOSX", ".DS_Store")
-          ]
-
-          source = (
-              items[0]
-              if len(items) == 1 and items[0].is_dir()
-              else temp
-          )
-
-          for item in list(source.iterdir()):
-
-              # Preserve existing GitHub workflows
-              if item.name in (".github", ".git"):
-                  print(f"Preserving: {item.name}")
-                  continue
-
-              destination = root / item.name
-
-              if destination.exists():
-                  if destination.is_dir() and not destination.is_symlink():
-                      shutil.rmtree(destination)
-                  else:
-                      destination.unlink()
-
-              shutil.move(str(item), str(destination))
-
-          shutil.rmtree(temp)
-          zip_file.unlink()
-
-          print("ZIP extracted successfully.")
-          PY
-
-      - name: Commit and Push
+      - name: Commit and push the deletion
         run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF_TYPE}" != "branch" ]; then
+            echo "Run this workflow on a branch (not a tag)." >&2
+            exit 1
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
           git add -A
-
-          if ! git diff --cached --quiet; then
-            git commit -m "Extract and update project files"
-            git push origin "HEAD:${GITHUB_REF_NAME}"
-          else
-            echo "No changes to commit."
+          if git diff --cached --quiet; then
+            echo "Nothing to delete: the branch has no project files."
+            exit 0
           fi
+          deleted=$(git diff --cached --name-only --diff-filter=D | wc -l)
+          git commit -m "Clean repository: remove all project files"
+          git push origin "HEAD:refs/heads/${GITHUB_REF_NAME}"
+          echo "Deleted $deleted files and pushed the commit to ${GITHUB_REF_NAME}." | tee -a "$GITHUB_STEP_SUMMARY"
