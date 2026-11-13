@@ -1,13 +1,14 @@
 name: Unpack project ZIP
 
 # Manual only: Actions tab -> "Unpack project ZIP" -> Run workflow.
-# Finds the ZIP file you name, extracts it into the repository root and commits the result.
+# Finds the ZIP file you name, extracts it into the repository and commits the result.
 # Files that already exist are replaced by the ones inside the ZIP; nothing else is deleted.
+# Workflow files (.github/workflows) inside the ZIP are NOT copied: GitHub does not allow the default token to change them.
 on:
   workflow_dispatch:
     inputs:
       zip_path:
-        description: 'Path of the ZIP file in the repository (example: persian-ai-builder-v13-merged.zip)'
+        description: 'Name of the ZIP file in the repository (example: persian-ai-builder-v13-merged.zip)'
         required: true
         type: string
       target_dir:
@@ -59,8 +60,13 @@ jobs:
             exit 1
           fi
 
-          unzip -q -o "$ZIP_PATH" -d "$target"
-          echo "Extracted $(unzip -Z1 "$ZIP_PATH" | wc -l) entries into $target."
+          # Extract to a temporary folder first, then copy everything EXCEPT .github/workflows.
+          tmp="$(mktemp -d)"
+          unzip -q -o "$ZIP_PATH" -d "$tmp"
+          (cd "$tmp" && tar --exclude='./.github/workflows' -cf - .) | (cd "$target" && tar -xf -)
+          rm -rf "$tmp"
+          skipped=$(unzip -Z1 "$ZIP_PATH" | grep -c '^\.github/workflows/' || true)
+          echo "Extracted into $target. Skipped $skipped workflow file(s) from .github/workflows."
 
       - name: Commit and push the extracted files
         env:
